@@ -168,9 +168,9 @@ void Connection::Init(Handle<Object> target)
 NAN_METHOD(Connection::New)
 {
   Connection *connection = new Connection();
-  connection->Wrap(info.This());
+  connection->Wrap(info.Holder());
 
-  info.GetReturnValue().Set(info.This());
+  info.GetReturnValue().Set(info.Holder());
 }
 
 /*****************************************************************************/
@@ -442,7 +442,7 @@ NAN_METHOD(Connection::Execute)
   Connection *connection;
   NJS_GET_CALLBACK ( callback, info );
 
-  connection = Nan::ObjectWrap::Unwrap<Connection>(info.This());
+  connection = Nan::ObjectWrap::Unwrap<Connection>(info.Holder());
 
   /* If connection is invalid from JS, then throw an exception */
   NJS_CHECK_OBJECT_VALID2 ( connection, info ) ;
@@ -1033,7 +1033,7 @@ void Connection::GetInBindParamsScalar(Local<Value> v8val, Bind* bind,
                              bind->maxSize : *(bind->len);
           if(size)
           {
-            bind->value = (char*)malloc(size);
+            bind->value = (char *)malloc((size_t) size);
             if(bufLen)
               memcpy(bind->value, Buffer::Data(obj), bufLen);
           }
@@ -1298,7 +1298,7 @@ void Connection::GetInBindParamsArray(Local<Array> va8vals, Bind *bind,
   //
 
   bind->isArray = true;
-  bind->maxSize = arrayElementSize;
+  bind->maxSize = (ub4) arrayElementSize;
 
   executeBaton->binds.push_back(bind);
 
@@ -1498,7 +1498,8 @@ void Connection::Async_Execute (uv_work_t *req)
       executeBaton->rowsAffected = executeBaton->dpistmt->rowsAffected();
 
       // Check whether indicators were allocated as part of callback
-      if ( executeBaton->stmtIsReturning )
+      // Address GitHub issue #343
+      if ( executeBaton->stmtIsReturning && executeBaton->rowsAffected )
       {
         for ( unsigned int b = 0; b < executeBaton->binds.size (); b++ )
         {
@@ -1744,6 +1745,10 @@ void Connection::PrepareAndBind (eBaton* executeBaton)
                  executeBaton->binds[index]->maxSize,
               executeBaton->binds[index]->ind,
               executeBaton->binds[index]->len,
+              (executeBaton->binds[index]->isArray) ?
+                executeBaton->binds[index]->maxArraySize : 0,
+              (executeBaton->binds[index]->isArray) ?
+                &(executeBaton->binds[index]->curArraySize ) : 0,
               (executeBaton->stmtIsReturning &&
                 executeBaton->binds[index]->isOut ) ?
                   (void *)executeBaton : NULL,
@@ -2150,7 +2155,7 @@ void Connection::DoDefines ( eBaton* executeBaton, const dpi::MetaData* meta,
           return;
         }
         defines[col].buf = (char *)malloc(defines[col].maxSize *
-                                          executeBaton->maxRows) ;
+                                          (size_t) executeBaton->maxRows) ;
         if ( !defines[col].buf )
         {
           executeBaton->error = NJSMessages::getErrorMsg ( 
@@ -3077,7 +3082,7 @@ NAN_METHOD(Connection::Release)
   NJS_GET_CALLBACK ( callback, info );
   ConnectionBusyStatus connStat;
 
-  connection = Nan::ObjectWrap::Unwrap<Connection>(info.This());
+  connection = Nan::ObjectWrap::Unwrap<Connection>(info.Holder());
 
   /* If connection is invalide from JS, then throw an exception */
   NJS_CHECK_OBJECT_VALID2 ( connection, info ) ;
@@ -3203,7 +3208,7 @@ NAN_METHOD(Connection::Commit)
   Connection *connection;
   NJS_GET_CALLBACK ( callback, info );
 
-  connection = Nan::ObjectWrap::Unwrap<Connection>(info.This());
+  connection = Nan::ObjectWrap::Unwrap<Connection>(info.Holder());
 
   /* if connection is invalid from JS, then throw an exception */
   NJS_CHECK_OBJECT_VALID2 ( connection, info ) ;
@@ -3310,7 +3315,7 @@ NAN_METHOD(Connection::Rollback)
   Connection *connection;
   NJS_GET_CALLBACK ( callback, info );
 
-  connection = Nan::ObjectWrap::Unwrap<Connection>(info.This());
+  connection = Nan::ObjectWrap::Unwrap<Connection>(info.Holder());
   /* if connection is invalid from JS, then throw an exception */
   NJS_CHECK_OBJECT_VALID2 ( connection, info );
 
@@ -3413,7 +3418,7 @@ NAN_METHOD(Connection::Break)
   Connection *connection;
   NJS_GET_CALLBACK ( callback, info );
 
-  connection = Nan::ObjectWrap::Unwrap<Connection>(info.This());
+  connection = Nan::ObjectWrap::Unwrap<Connection>(info.Holder());
 
   /* If connection is invalid from JS, then throw an exception */
   NJS_CHECK_OBJECT_VALID2 ( connection, info );
@@ -3598,7 +3603,7 @@ void Connection::cbDynBufferAllocate ( void *ctx, bool dmlReturning,
 
   if ( bind->isArray )
   {
-    size_t arrayElementSize = bind->maxSize;
+    size_t arrayElementSize = (size_t) bind->maxSize;
     
     Connection::AllocateBindArray ( bind->type, bind, executeBaton,
                                     &arrayElementSize );
@@ -3746,6 +3751,8 @@ void Connection::cbDynBufferAllocate ( void *ctx, bool dmlReturning,
     // rowsReturns for INSERT will be zero, 
     // but we still need to allocate one descriptor
     bind->rowsReturned = 1;
+    // initialize indicator to null
+    *(bind->ind) = -1;
     if (nRows > 1)
       bind->rowsReturned = nRows;
     // allocate the array of Descriptor **
